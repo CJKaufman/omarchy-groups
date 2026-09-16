@@ -42,5 +42,5 @@ for filename, (variable, catalog) in catalogs.items():
     output = header + f'var {variable} = ' + json.dumps(catalog, ensure_ascii=False, indent=2) + '\n'
     if len(output.encode('utf-8')) > 512 * 1024:
         raise ValueError(f'{filename} exceeds the marketplace scan limit')
-    (ROOT / filename).write_text(output)
+    (ROOT / filename).write_text(output, encoding='utf-8')
 print(f'Bundled {len(paths)} icons with search keywords.')

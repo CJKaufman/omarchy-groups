@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Preserve each repeated widget's settings when moving a selected instance from a group to the bar or another group.
+- Generate icon catalogs with explicit UTF-8 encoding.
+
 ## 1.0.0
 
 First public release of Groups for Omarchy.

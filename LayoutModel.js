@@ -247,7 +247,7 @@ function reorder(config, moduleName, from, to, groupId) {
 
 // Moves settings off a plugins[] marker onto the drawer entry and shrinks the
 // marker back to a bare id.
-function reclaim(config, drawerEntry, id) {
+function reclaim(config, drawerEntry, id, itemIndex) {
   if (!Array.isArray(config.plugins) || !drawerEntry || !Array.isArray(drawerEntry.items)) return false
   var marker = null
   for (var i = 0; i < config.plugins.length; i++) {
@@ -256,11 +256,13 @@ function reclaim(config, drawerEntry, id) {
   // A bare marker has nothing to fold in; replacing anyway would wipe the
   // item's own settings.
   if (!marker || Object.keys(marker).length <= 1) return false
-  var slot = -1
-  for (var j = 0; j < drawerEntry.items.length; j++) {
-    if (entryIdOf(drawerEntry.items[j]) === id) { slot = j; break }
+  var slot = itemIndex === undefined ? -1 : itemIndex
+  if (itemIndex === undefined) {
+    for (var j = 0; j < drawerEntry.items.length; j++) {
+      if (entryIdOf(drawerEntry.items[j]) === id) { slot = j; break }
+    }
   }
-  if (slot < 0) return false
+  if (!Number.isInteger(slot) || slot < 0 || entryIdOf(drawerEntry.items[slot]) !== id) return false
   // updateEntryInline writes settings whole: replace, do not merge.
   var keys = Object.keys(marker)
   var next = { id: id }
@@ -523,7 +525,7 @@ function placeWidget(config, moduleName, destinationId, choice, widgetOnly) {
     if (alreadyPlaced) return false
   }
   if (destinationId === null && !sourceGroup) return false
-  if (sourceGroup && widgetOnly) reclaim(config, sourceGroup, choice.id)
+  if (sourceGroup && widgetOnly) reclaim(config, sourceGroup, choice.id, at)
   var entry = source ? source.splice(at, 1)[0] : {id: choice.id}
   if (destination) {
     if (!Array.isArray(destination.entry.items)) destination.entry.items = []

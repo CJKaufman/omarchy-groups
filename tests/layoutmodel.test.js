@@ -546,6 +546,23 @@ console.log('group settings preserve widgets, settings, and stable identities')
 }
 console.log('fresh setup, automatic identities, widget selection and last-group recovery passed')
 
+// Pending settings follow the selected repeated instance when it leaves a group.
+for (const destination of [null, 'target']) {
+  const source = {id: NOOK, groupId: 'source', items: [
+    {id: 'w.repeat', label: 'First'}, {id: 'w.repeat', label: 'Second'},
+  ]}
+  const target = {id: NOOK, groupId: 'target', items: []}
+  const config = {bar: {layout: {left: [], center: [], right: [source, target]}},
+    plugins: [{id: 'w.repeat', label: 'Updated second'}]}
+  const choice = Layout.widgetChoices(config, NOOK, [], destination)
+    .find(row => row.location.groupId === 'source' && row.location.itemIndex === 1)
+  assert(Layout.placeWidget(config, NOOK, destination, choice, true))
+  same(source.items, [{id: 'w.repeat', label: 'First'}], 'the unselected instance retains its settings')
+  same(destination === null ? config.bar.layout.right[1] : target.items[0],
+    {id: 'w.repeat', label: 'Updated second'}, 'the selected instance receives pending settings')
+  assert(!config.plugins.some(entry => entry.label), 'pending settings were consumed')
+}
+
 // Reading host-owned sections must not depend on JavaScript Array methods.
 {
   const entry = {id: NOOK, groupId: "existing"}
