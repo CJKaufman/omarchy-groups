@@ -5,6 +5,19 @@
 // JSON stays a string role: ListModel otherwise turns nested settings arrays
 // into nested models, changing the widget settings contract.
 function syncEntries(model, entries) {
+  var serialized = entries.map(function(entry) { return JSON.stringify(entry) })
+  // Most shell updates do not change this list. Avoid parsing old settings,
+  // matching delegates and notifying QML for those updates.
+  if (model.count === serialized.length) {
+    var unchanged = true
+    for (var same = 0; same < serialized.length; same++) {
+      if (model.get(same).entryJson !== serialized[same]) { unchanged = false; break }
+    }
+    if (unchanged) return false
+  }
+  var wanted = entries.map(function(entry, index) {
+    return {id: entryIdOf(entry), json: serialized[index], match: -1}
+  })
   var rows = []
   var used = []
   var nextKey = 0
@@ -13,9 +26,6 @@ function syncEntries(model, entries) {
     rows.push({ key: row.instanceKey, json: row.entryJson, id: entryIdOf(JSON.parse(row.entryJson)) })
     nextKey = Math.max(nextKey, row.instanceKey + 1)
   }
-  var wanted = entries.map(function(entry) {
-    return { id: entryIdOf(entry), json: JSON.stringify(entry), match: -1 }
-  })
   for (var exact = 0; exact < wanted.length; exact++) {
     for (var old = 0; old < rows.length; old++) {
       if (!used[old] && rows[old].json === wanted[exact].json) {
@@ -53,6 +63,7 @@ function syncEntries(model, entries) {
         model.setProperty(target, "entryJson", entry.json)
     }
   }
+  return true
 }
 
 
@@ -169,8 +180,16 @@ function markEnabled(config, id) {
 }
 
 // Only drops a bare marker; an entry carrying settings or other kinds stays.
-function unmarkEnabled(config, id) {
+function unmarkEnabled(config, id, moduleName) {
   if (!Array.isArray(config.plugins)) return
+  // Repeated widgets may still be hosted by this or another drawer.
+  var layout = config.bar ? config.bar.layout : null
+  if (moduleName && layout && SECTIONS.some(function(section) {
+    return (layout[section] || []).some(function(entry) {
+      return entryIdOf(entry) === moduleName && Array.isArray(entry.items)
+        && entry.items.some(function(child) { return entryIdOf(child) === id })
+    })
+  })) return
   config.plugins = config.plugins.filter(function(entry) {
     if (!entry || String(entry.id) !== id) return true
     return Object.keys(entry).length > 1
@@ -207,7 +226,7 @@ function eject(config, moduleName, id, widgetOnly, groupId, destination) {
   var moved = takeFromItems(found.entry, id)
   if (!moved) return false
   list.splice(index, 0, moved)
-  unmarkEnabled(config, id)
+  unmarkEnabled(config, id, moduleName)
   return true
 }
 
@@ -232,7 +251,8 @@ function transfer(config, moduleName, id, fromGroup, toGroup, index) {
 // `to` is an insertion index measured before the removal, so a move to a later
 // position shifts down by one.
 function reorder(config, moduleName, from, to, groupId) {
-  if (from < 0 || to < 0 || from === to || from === to - 1) return false
+  if (!Number.isInteger(from) || !Number.isInteger(to)
+      || from < 0 || to < 0 || from === to || from === to - 1) return false
   var found = findDrawerEntry(config.bar.layout, moduleName, groupId)
   if (!found || !Array.isArray(found.entry.items)) return false
   var items = found.entry.items
@@ -281,7 +301,7 @@ function reconcile(config, moduleName, gone, stranded, groupId) {
   if (!found) return false
   for (var i = 0; i < gone.length; i++) {
     takeFromItems(found.entry, gone[i])
-    unmarkEnabled(config, gone[i])
+    unmarkEnabled(config, gone[i], moduleName)
   }
   for (var j = 0; j < stranded.length; j++) reclaim(config, found.entry, stranded[j])
   return true
@@ -346,7 +366,7 @@ function updateGroup(config, moduleName, groupId, changes) {
   found.entry.label = changes.label.trim()
   found.entry.icon = changes.icon
   found.entry.trigger = changes.trigger
-  if (typeof changes.duration === "number") found.entry.duration = Math.max(0, Math.min(1000, Math.round(changes.duration)))
+  if (Number.isFinite(changes.duration)) found.entry.duration = Math.max(0, Math.min(1000, Math.round(changes.duration)))
   if (typeof changes.showBorder === "boolean") found.entry.showBorder = changes.showBorder
   if (found.section !== changes.section) {
     if (!Array.isArray(config.bar.layout[changes.section])) config.bar.layout[changes.section] = []
@@ -363,11 +383,11 @@ function removeGroup(config, moduleName, groupId, widgetOnlyIds) {
   items.forEach(function(entry) {
     var id = entryIdOf(entry)
     if ((widgetOnlyIds || []).indexOf(id) !== -1) reclaim(config, found.entry, id)
-    unmarkEnabled(config, id)
   })
   // reclaim can replace item objects, so read the resulting array again.
   var restored = found.entry.items || []
   config.bar.layout[found.section].splice.apply(config.bar.layout[found.section], [found.index, 1].concat(restored))
+  restored.forEach(function(entry) { unmarkEnabled(config, entryIdOf(entry), moduleName) })
   // Leave a visible way back after removing the final group.
   if (groupRows(config, moduleName).length === 0) setSettingsShortcut(config, moduleName, true, found.section)
   markEnabled(config, moduleName)
@@ -498,12 +518,16 @@ function widgetChoices(config, moduleName, catalog, targetGroupId) {
 }
 
 // A null destination returns the widget beside its current group on the bar.
-function placeWidget(config, moduleName, destinationId, choice, widgetOnly) {
+function placeWidget(config, moduleName, destinationId, choice, widgetOnly, insertionIndex, barDestination) {
   if (!choice || !choice.id || choice.id === moduleName) return false
   var layout = config && config.bar ? config.bar.layout : null
   if (!layout) return false
   var destination = destinationId === null ? null : findDrawerEntry(layout, moduleName, destinationId)
   if (destinationId !== null && (!destination || destination.entry.role === "manager")) return false
+  if (insertionIndex !== undefined && (!Number.isInteger(insertionIndex) || insertionIndex < -1)) return false
+  if (barDestination && (destinationId !== null || SECTIONS.indexOf(barDestination.section) < 0
+      || !Array.isArray(layout[barDestination.section]) || !Number.isInteger(barDestination.index)
+      || barDestination.index < 0 || barDestination.index > layout[barDestination.section].length)) return false
   var source = null, sourceGroup = null, at = -1
   if (choice.location) {
     var loc = choice.location
@@ -529,14 +553,19 @@ function placeWidget(config, moduleName, destinationId, choice, widgetOnly) {
   var entry = source ? source.splice(at, 1)[0] : {id: choice.id}
   if (destination) {
     if (!Array.isArray(destination.entry.items)) destination.entry.items = []
-    destination.entry.items.push(entry)
+    var slots = hostableIndexes(destination.entry.items, moduleName)
+    var insertAt = insertionIndex >= 0 && insertionIndex < slots.length
+      ? slots[insertionIndex] : destination.entry.items.length
+    destination.entry.items.splice(insertAt, 0, entry)
     if (!entry.exec && !entry.source) {
       markEnabled(config, choice.id)
       if (Array.isArray(config.disabledPlugins)) config.disabledPlugins = config.disabledPlugins.filter(function(id) { return id !== choice.id })
     }
   } else {
-    layout[choice.location.section].splice(choice.location.index + 1, 0, entry)
-    unmarkEnabled(config, choice.id)
+    var section = barDestination ? barDestination.section : choice.location.section
+    var index = barDestination ? barDestination.index : choice.location.index + 1
+    layout[section].splice(index, 0, entry)
+    unmarkEnabled(config, choice.id, moduleName)
   }
   return true
 }

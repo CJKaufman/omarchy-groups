@@ -54,12 +54,13 @@ Item {
     if (!currentConfig || !currentConfig.bar || !hasSelection) return []
     var found = Layout.findDrawerEntry(currentConfig.bar.layout, pluginId, selectedId)
     if (!found) return []
-    return (found.entry.items || []).map(function(entry, index) {
+    return Layout.hostableIndexes(found.entry.items, pluginId).map(function(index) {
+      var entry = found.entry.items[index]
       var id = Layout.entryIdOf(entry)
       var plugin = pluginCatalog.find(function(candidate) { return candidate.id === id })
       return {id: id, name: entry.label || (plugin ? plugin.name : id), location: {
         section: found.section, index: found.index, groupId: selectedId, itemIndex: index, snapshot: JSON.stringify(entry)}}
-    }).filter(function(entry) { return entry.id && entry.id !== root.pluginId })
+    })
   }
   readonly property var availableWidgets: Layout.widgetChoices(currentConfig, pluginId, pluginCatalog, selectedId)
 
@@ -476,13 +477,14 @@ Item {
         }
         ListView {
           id: widgetList
+          objectName: "widgetList"
           width: parent.width
           height: Math.max(0, widgetChooser.height - y)
           clip: true
           spacing: Style.space(6)
           boundsBehavior: Flickable.StopAtBounds
           QQC.ScrollBar.vertical: QQC.ScrollBar {}
-          model: root.availableWidgets.filter(function(widget) {
+          model: !root.opened || !root.choosingWidget ? [] : root.availableWidgets.filter(function(widget) {
             var query = widgetSearch.text.trim().toLowerCase()
             return (widget.name + " " + widget.id + " " + widget.origin).toLowerCase().indexOf(query) !== -1
           })
@@ -527,7 +529,7 @@ Item {
             width: parent.width
             spacing: Style.space(6)
             Repeater {
-              model: GroupIcons.originalNames
+              model: root.opened && root.choosingIcon ? GroupIcons.originalNames : []
               IconChoice { required property string modelData; iconName: modelData }
             }
           }
@@ -539,6 +541,7 @@ Item {
         }
         GridView {
           id: iconGrid
+          objectName: "iconGrid"
           width: parent.width
           height: Math.max(0, iconChooser.height - y)
           cellWidth: width / Math.max(1, Math.floor(width / Style.space(56)))
@@ -546,8 +549,8 @@ Item {
           clip: true
           boundsBehavior: Flickable.StopAtBounds
           QQC.ScrollBar.vertical: QQC.ScrollBar {}
-          model: iconSearch.text.trim() === ""
-            ? root.iconNames.filter(function(name) { return GroupIcons.originalNames.indexOf(name) === -1 })
+          model: !root.opened || !root.choosingIcon ? [] : iconSearch.text.trim() === ""
+            ? GroupIcons.catalogNames
             : GroupIcons.search(iconSearch.text)
           onModelChanged: positionViewAtBeginning()
           delegate: IconChoice {

@@ -417,6 +417,12 @@ ShellRoot {
       mockShell.shellConfig = {bar: {layout: {left: [{id: "w.clock", format: "short"}], center: [], right: ["kristofferr.groups"]}}, plugins: []}
       settingsPanel.open("{}")
       if (settingsPanel.groups.length !== 1 || !settingsPanel.selectedId) return fail("initial settings did not assign group identity")
+      if (namedChild(settingsPanel, "iconGrid").count !== 0 || namedChild(settingsPanel, "widgetList").count !== 0)
+        return fail("hidden pickers created delegates")
+      settingsPanel.choosingIcon = true
+      if (namedChild(settingsPanel, "iconGrid").count < 1800) return fail("icon picker did not populate on demand")
+      settingsPanel.choosingIcon = false
+      if (namedChild(settingsPanel, "iconGrid").count !== 0) return fail("icon picker retained hidden delegates")
       namedChild(settingsPanel, "groupName").text = "My group"
       namedChild(settingsPanel, "saveGroup").clicked()
       if (settingsPanel.groups[0].name !== "My group") return fail("name control did not save")

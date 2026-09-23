@@ -102,7 +102,10 @@ def main():
         mouse.move(gpoint(DEST), dwell=500)
         ipc(DEST, 'open')
         wait(lambda: d.geometry()[PROBE]['y'] >= 26, 'probe below bar')
-        mouse.glide(gpoint(DEST), d.item_center(d.geometry()[PROBE]))
+        mouse.move(d.item_center(d.geometry()[PROBE]), dwell=700)
+        # Geometry can be available before the rebuilt drawer receives input.
+        wait(lambda: state(DEST)['childTooltipText'] == 'Native probe tooltip'
+             and state(DEST)['childTooltipVisible'], 'destination probe receives hover')
         # The user may move the clock between regions; target its current slot.
         clock_section = next(section for section, entries in config()['bar']['layout'].items()
                              if any(e['id'] == 'omarchy.clock' for e in entries))
@@ -141,7 +144,9 @@ def main():
         mouse.move(gpoint(DEST), dwell=500)
         ipc(DEST, 'open')
         wait(lambda: d.geometry()[PROBE]['y'] >= 26, 'probe below bar')
-        mouse.glide(gpoint(DEST), d.item_center(d.geometry()[PROBE]))
+        mouse.move(d.item_center(d.geometry()[PROBE]), dwell=700)
+        wait(lambda: state(DEST)['childTooltipText'] == 'Native probe tooltip'
+             and state(DEST)['childTooltipVisible'], 'returned probe receives hover')
         before = config_path.read_text()
         mouse.drag(d.item_center(d.geometry()[PROBE]), (700,300))
         assert config_path.read_text() == before, 'drop outside bar/drawers must cancel'
