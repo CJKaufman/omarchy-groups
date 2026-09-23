@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Reduce work during drawer updates and hovers, and load picker models only while settings are open.
+- Cache icon search data for faster repeated searches.
+- Keep overflow scrolling consistent across refresh rates and update drop positions while scrolling.
+- Preserve the exact selected widget and its settings during drag-and-drop, reject stale drag sources, and retain enablement for widgets still hosted elsewhere.
+- Close the source drawer after a transfer so it cannot block clicks on the destination.
+
 ## 1.0.1
 
 - Preserve each repeated widget's settings when moving a selected instance from a group to the bar or another group.
