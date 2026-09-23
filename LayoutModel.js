@@ -390,7 +390,6 @@ function removeGroup(config, moduleName, groupId, widgetOnlyIds) {
   restored.forEach(function(entry) { unmarkEnabled(config, entryIdOf(entry), moduleName) })
   // Leave a visible way back after removing the final group.
   if (groupRows(config, moduleName).length === 0) setSettingsShortcut(config, moduleName, true, found.section)
-  markEnabled(config, moduleName)
   return true
 }
 
