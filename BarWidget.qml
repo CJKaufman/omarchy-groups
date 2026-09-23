@@ -317,6 +317,18 @@ BarWidget {
   readonly property real maxScroll: Math.max(0, contentExtent - stripExtent)
   readonly property bool overflowing: maxScroll > 0.5
   property real scrollOffset: 0
+  onScrollOffsetChanged: Qt.callLater(refreshDragInsertion)
+
+  function refreshDragInsertion() {
+    // A stationary pointer still changes its insertion point as the row scrolls.
+    // Let the Row/Column position binding settle before mapping its children.
+    if (draggingChild) updateChildDrag(childDragScenePoint)
+    else if (incomingGroup) incomingGroup.updateChildDrag(incomingGroup.childDragScenePoint)
+    else if (dropOnCard && hostBar) {
+      armedIndex = insertionIndexAt(vertical ? hostBar.barDragSceneY : hostBar.barDragSceneX)
+      caretIndex = armedIndex
+    }
+  }
 
   onMaxScrollChanged: scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll))
   onExpandedChanged: {
@@ -358,7 +370,7 @@ BarWidget {
   onEntriesChanged: syncDrawerEntries()
 
   function syncDrawerEntries() {
-    Layout.syncEntries(drawerModel, entries)
+    if (!Layout.syncEntries(drawerModel, entries)) return
     // Index signals fire during model moves. Collect the final order after
     // reconciliation, including unchanged delegates which emit no signal.
     var repeater = root.vertical ? columnRepeater : rowRepeater
@@ -424,15 +436,15 @@ BarWidget {
     return pastBar && along >= cardAlong && along <= cardAlong + cardExtent
   }
 
-  property string armedId: ""
+  property var armedChoice: null
   property int armedIndex: -1
 
   onDropHoveredChanged: {
     if (!hostBar) return
     if (dropHovered) {
-      armedId = dragSourceId()
+      armedChoice = dragSourceId() ? choiceForSlot(hostBar.barDragSource) : null
     } else if (hostBar.barDragSource) {
-      armedId = ""                                // pointer left again, still dragging
+      armedChoice = null
       armedIndex = -1
       caretIndex = -1
     }
@@ -474,21 +486,25 @@ BarWidget {
     // Release and cancel look identical here, so an abandoned drag lands.
     function onBarDragSourceChanged() {
       if (!root.hostBar || root.hostBar.barDragSource) return
-      var id = root.armedId
+      var choice = root.armedChoice
       var index = root.armedIndex
-      root.armedId = ""
+      root.armedChoice = null
       root.armedIndex = -1
       root.caretIndex = -1
-      if (id) root.absorb(id, index)
+      if (choice) root.mutate(function(config) {
+        Layout.placeWidget(config, root.moduleName, root.groupId, choice, false, index)
+      })
     }
   }
 
 
   property int draggingIndex: -1
   property var childDragSlot: null
+  property var childDragChoice: null
   property int caretIndex: -1
   property bool draggingOutside: false
   property point childDragPoint: Qt.point(-1, -1)
+  property point childDragScenePoint: Qt.point(-1, -1)
   property var childDropGroup: null
   property var childDropBar: null
 
@@ -551,11 +567,29 @@ BarWidget {
       index: index + (drop.after ? 1 : 0), slot: drop.slot, after: drop.after}
   }
 
+  // Capture the exact saved occurrence before a drag. The snapshot also
+  // rejects a drop if a concurrent settings edit changed its source.
+  function choiceForSlot(slot, itemIndex) {
+    var index = slotLayoutIndex(itemIndex === undefined ? slot : ownSlot)
+    if (index < 0) return null
+    var saved = JSON.parse(JSON.stringify(shellConfig.bar.layout[slot.region][index]))
+    var hosted = itemIndex !== undefined
+    var rawIndex = hosted ? Layout.hostableIndexes(saved.items, moduleName)[itemIndex] : -1
+    if (rawIndex === undefined) return null
+    var entry = hosted ? saved.items[rawIndex] : saved
+    return {id: Layout.entryIdOf(entry), location: {
+      section: slot.region, index: index, itemIndex: rawIndex,
+      groupId: hosted ? String(saved.groupId || "") : null, snapshot: JSON.stringify(entry)
+    }}
+  }
+
   readonly property bool draggingChild: draggingIndex >= 0
 
   function beginChildDrag(cell, pressPoint) {
     if (!cell || !barWindow || !hostBar || typeof hostBar.captureBarDragGhost !== "function"
         || typeof hostBar.moduleDropAtScene !== "function") return
+    childDragChoice = choiceForSlot(cell.nativeDragSlot, cell.index)
+    if (!childDragChoice) return
     draggingIndex = cell.index
     childDragSlot = cell.nativeDragSlot
     caretIndex = -1
@@ -589,6 +623,7 @@ BarWidget {
 
   function updateChildDrag(scenePoint) {
     if (!draggingChild || !hostBar || hostBar.barDragSource !== childDragSlot) return
+    childDragScenePoint = scenePoint
     var global = strip.contentItem.mapToGlobal(scenePoint.x, scenePoint.y)
     childDragPoint = barWindow.contentItem.mapFromGlobal(global.x, global.y)
     var previous = childDropGroup
@@ -618,30 +653,39 @@ BarWidget {
   }
 
   function endChildDrag() {
-    var from = draggingIndex
     var caret = caretIndex
     var target = childDropGroup
     var destination = childDropBar
     var targetIndex = target ? target.caretIndex : -1
-    var entry = from >= 0 && from < entries.length ? entries[from] : null
+    var choice = childDragChoice
     var targetId = target ? target.groupId : ""
 
     cancelChildDrag()
-    if (!entry) return
+    if (!choice) return
     if (target) {
       mutate(function(config) {
-        Layout.transfer(config, root.moduleName, entry.id, root.groupId, targetId, targetIndex)
+        Layout.placeWidget(config, root.moduleName, targetId, choice, root.widgetOnly(choice.id), targetIndex)
       })
     } else if (destination) {
       mutate(function(config) {
-        Layout.eject(config, root.moduleName, entry.id, root.widgetOnly(entry.id), root.groupId, destination)
+        Layout.placeWidget(config, root.moduleName, null, choice, root.widgetOnly(choice.id), -1, destination)
       })
-    } else if (caret >= 0) reorder(from, caret)
+    } else if (caret >= 0) {
+      mutate(function(config) {
+        var found = Layout.findDrawerEntry(config.bar.layout, root.moduleName, root.groupId)
+        if (found && Array.isArray(found.entry.items)
+            && JSON.stringify(found.entry.items[choice.location.itemIndex]) === choice.location.snapshot) {
+          var from = Layout.hostableIndexes(found.entry.items, root.moduleName).indexOf(choice.location.itemIndex)
+          Layout.reorder(config, root.moduleName, from, caret, root.groupId)
+        }
+      })
+    }
   }
 
   function cancelChildDrag() {
     if (childDragSlot && hostBar && hostBar.barDragSource === childDragSlot) hostBar.clearBarDrag()
     childDragSlot = null
+    childDragChoice = null
     if (childDropGroup) childDropGroup.caretIndex = -1
     childDropGroup = null
     childDropBar = null
@@ -903,16 +947,20 @@ BarWidget {
   // A separate surface preserves the strip's thickness, which child panels use
   // for anchoring. The bar and card remain input holes so hover and native
   // widget clicks keep working. Child panels own dismissal while they are open.
+  readonly property bool dismissActive: expanded && entries.length > 0 && openChildCount === 0
+    && !anyGroupDragging && !(hostBar && hostBar.barDragSource)
+  property bool dismissInitialized: false
+  onDismissActiveChanged: if (dismissActive) dismissInitialized = true
   Variants {
-    model: root.expanded && root.openChildCount === 0 && !root.anyGroupDragging
-      && !(root.hostBar && root.hostBar.barDragSource) ? Quickshell.screens : []
+    // Reuse the QML surfaces across hovers; only their native visibility changes.
+    model: root.dismissInitialized ? Quickshell.screens : []
     delegate: Component {
       PanelWindow {
         required property var modelData
         readonly property bool ownScreen: root.barWindow && root.barWindow.screen
           && modelData.name === root.barWindow.screen.name
         screen: modelData
-        visible: root.expanded
+        visible: root.dismissActive
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "omarchy-group-dismiss-" + root.groupId
@@ -1041,11 +1089,12 @@ BarWidget {
         return 0
       }
 
-      Timer {
-        running: cardArea.edgeDirection !== 0
-        repeat: true
-        interval: 16
-        onTriggered: root.scrollBy(cardArea.edgeDirection * Style.space(3))
+      FrameAnimation {
+        id: edgeScroll
+        running: strip.visible && (cardArea.edgeDirection < 0 ? root.scrollOffset > 0
+          : cardArea.edgeDirection > 0 && root.scrollOffset < root.maxScroll)
+        // Keep the same speed across refresh rates, and avoid a jump after a stall.
+        onTriggered: root.scrollBy(cardArea.edgeDirection * Style.space(187.5) * Math.min(frameTime, 0.05))
       }
 
       BorderSurface {
@@ -1116,20 +1165,22 @@ BarWidget {
           width: root.vertical ? (anchorCell ? anchorCell.width : 0) : Style.spacing.xs
           height: root.vertical ? Style.spacing.xs : (anchorCell ? anchorCell.height : 0)
           x: {
+            root.itemsFlow.x
             if (!anchorCell) return 0
             var point = anchorCell.mapToItem(parent, 0, 0)
             if (root.vertical) return point.x
             return Math.round(point.x + (atEnd ? anchorCell.width : 0) - width / 2)
           }
           y: {
+            root.itemsFlow.y
             if (!anchorCell) return 0
             var point = anchorCell.mapToItem(parent, 0, 0)
             if (!root.vertical) return point.y
             return Math.round(point.y + (atEnd ? anchorCell.height : 0) - height / 2)
           }
 
-          Behavior on x { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-          Behavior on y { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+          Behavior on x { enabled: !edgeScroll.running; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+          Behavior on y { enabled: !edgeScroll.running; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
           Behavior on opacity { NumberAnimation { duration: 90 } }
         }
 

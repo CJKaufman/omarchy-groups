@@ -546,6 +546,55 @@ console.log('group settings preserve widgets, settings, and stable identities')
 }
 console.log('fresh setup, automatic identities, widget selection and last-group recovery passed')
 
+// Malformed IPC indices must not let Array.splice coerce NaN to the first item.
+for (const invalid of [NaN, Infinity, -Infinity, 0.5, '1', undefined]) {
+  const config = makeConfig()
+  config.bar.layout.right[1].items = ['w.one', 'w.two', 'w.three']
+  const before = JSON.stringify(config)
+  assert.equal(Layout.reorder(config, NOOK, invalid, 2), false)
+  assert.equal(Layout.reorder(config, NOOK, 0, invalid), false)
+  assert.equal(JSON.stringify(config), before)
+}
+
+// Dragging a repeated widget selects its saved occurrence and insertion point.
+{
+  const source = {id: NOOK, groupId: 'source', items: [
+    {id: 'w.repeat', label: 'First'}, {id: 'w.repeat', label: 'Second'},
+  ]}
+  const target = {id: NOOK, groupId: 'target', items: [null, 'w.other']}
+  const config = {bar: {layout: {left: ['w.clock'], center: [], right: [source, target]}},
+    plugins: [{id: 'w.repeat'}]}
+  const choice = Layout.widgetChoices(config, NOOK, [], null)
+    .find(row => row.location.groupId === 'source' && row.location.itemIndex === 1)
+  assert(Layout.placeWidget(config, NOOK, 'target', choice, true, 0))
+  same(source.items, [{id: 'w.repeat', label: 'First'}])
+  same(target.items, [null, {id: 'w.repeat', label: 'Second'}, 'w.other'])
+  assert.equal(Layout.placeWidget(config, NOOK, 'target', choice, true, 0), false, 'stale drag is rejected')
+  const moved = Layout.widgetChoices(config, NOOK, [], null)
+    .find(row => row.location.groupId === 'target' && row.id === 'w.repeat')
+  const before = JSON.stringify(config)
+  assert.equal(Layout.placeWidget(config, NOOK, null, moved, true, -1, {section: 'left', index: NaN}), false)
+  assert.equal(JSON.stringify(config), before, 'invalid destination cannot consume the source')
+  assert(Layout.placeWidget(config, NOOK, null, moved, true, -1, {section: 'left', index: 0}))
+  same(config.bar.layout.left, [{id: 'w.repeat', label: 'Second'}, 'w.clock'])
+  assert(config.plugins.some(entry => entry.id === 'w.repeat'), 'remaining hosted instance stays enabled')
+  assert(Layout.removeGroup(config, NOOK, 'source', ['w.repeat']))
+  assert(!config.plugins.some(entry => entry.id === 'w.repeat'), 'last hosted occurrence releases the marker')
+}
+
+// No-op shell updates do not notify a model or parse its unchanged settings.
+{
+  const entries = [{id: 'w.one', options: {values: [1, 2]}}]
+  let reads = 0
+  const model = {
+    count: 1,
+    get(index) { reads++; assert.equal(index, 0); return {instanceKey: 1, entryJson: JSON.stringify(entries[0])} },
+  }
+  assert.equal(Layout.syncEntries(model, entries), false)
+  assert.equal(reads, 1)
+  assert.equal(Layout.syncEntries({count: 0}, []), false)
+}
+
 // Pending settings follow the selected repeated instance when it leaves a group.
 for (const destination of [null, 'target']) {
   const source = {id: NOOK, groupId: 'source', items: [

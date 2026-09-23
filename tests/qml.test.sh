@@ -76,3 +76,20 @@ if ! grep -Fq 'GROUPS_COMPAT_OK' "$TMP/compat.log" \
 fi
 
 echo "qml.test.sh: lint, source checks, and harnesses passed"
+
+# This maps a real bar. Opt in only on a dedicated test compositor so it cannot
+# take input or reserve space on the user's desktop.
+if [[ ${GROUPS_NATIVE_TEST:-0} == 1 ]]; then
+  mkdir -p -- "$TMP/native"
+  cp -- "$ROOT_DIR/tests/fixtures/native-bar.qml" "$TMP/native/shell.qml"
+  ln -s -- "$OMARCHY_SOURCE/shell/Commons" "$TMP/native/Commons"
+  ln -s -- "$OMARCHY_SOURCE/shell/Ui" "$TMP/native/Ui"
+  env NOOK_SOURCE_DIR="$ROOT_DIR" OMARCHY_PATH="$OMARCHY_SOURCE" \
+    timeout 15 quickshell -p "$TMP/native" --no-color >"$TMP/native.log" 2>&1 || true
+  if ! grep -Fq 'GROUPS_NATIVE_OK' "$TMP/native.log" \
+      || grep -Fq 'GROUPS_NATIVE_FAIL' "$TMP/native.log"; then
+    cat "$TMP/native.log" >&2
+    fail "native bar integration did not pass"
+  fi
+  echo "qml.test.sh: native bar drag integration passed"
+fi

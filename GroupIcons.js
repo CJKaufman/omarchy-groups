@@ -17,17 +17,26 @@ var paths = {
 }
 
 var originalNames = ["windows", "development", "input", "sound", "devices", "display", "appearance", "maintenance", "group"]
-var names = originalNames
-  .concat(Object.keys(Lucide.paths).filter(function(name) { return !paths[name] }).sort())
+var catalogNames = Object.keys(Lucide.paths).filter(function(name) { return !paths[name] }).sort()
+var names = originalNames.concat(catalogNames)
+var searchIndex = null
 
 function search(query) {
   var text = String(query || "").toLowerCase().trim()
   if (!text) return names
-  var tokens = text.split(/\s+/)
-  var matches = names.filter(function(name) {
-    var keywords = (name + " " + (SearchTerms.keywords[name] || "")).toLowerCase()
-    return tokens.every(function(token) { return keywords.indexOf(token) !== -1 })
+  if (!searchIndex) searchIndex = names.map(function(name) {
+    return (name + " " + (SearchTerms.keywords[name] || "")).toLowerCase()
   })
+  var tokens = text.split(/\s+/)
+  var matches = []
+  for (var index = 0; index < names.length; index++) {
+    var keywords = searchIndex[index]
+    var matched = true
+    for (var token = 0; token < tokens.length; token++) {
+      if (keywords.indexOf(tokens[token]) === -1) { matched = false; break }
+    }
+    if (matched) matches.push(names[index])
+  }
   var exact = matches.indexOf(text)
   if (exact > 0) matches.unshift(matches.splice(exact, 1)[0])
   return matches

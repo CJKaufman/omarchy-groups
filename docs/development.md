@@ -54,3 +54,35 @@ belongs to each native list so removing or reloading Groups does not break the
 bar. A shell restart clears it; loading Groups installs it again where needed.
 The compatibility harness checks delegate identity, repeated group IDs, nested
 settings, reordering, empty sections, orientation changes, and native-fix bypass.
+
+## Performance and drag validation
+
+Unchanged drawer models return before parsing old settings or matching delegates.
+Dismissal windows retain their QML objects across hovers, while native surfaces
+stay hidden when unused. Icon and widget pickers have empty models until opened;
+icon search builds its keyword index once, on the first search.
+
+Overflow scrolling uses Qt's [FrameAnimation](https://doc.qt.io/qt-6/qml-qtquick-frameanimation.html)
+with elapsed time, so its speed is independent of refresh rate. It stops at the
+scroll boundaries and when hidden. Drag insertion points refresh after scrolling
+has updated the row's geometry, including when the pointer stays still.
+
+Run `bash tests/benchmark.sh <baseline-ref>` for before/after measurements in
+Qt's JavaScript engine, without a display or GPU. A local sample against
+`eb2f0d8` on 2026-09-23 measured:
+
+| Work | Before | After |
+| --- | ---: | ---: |
+| 5,000 unchanged updates, 24 entries | 328 ms | 158 ms |
+| 5,000 unchanged updates, 120 entries | 1,668 ms | 842 ms |
+| 1,000 warmed multi-token icon searches | 1,556 ms | 217 ms |
+
+These are microbenchmarks, not desktop frame-rate measurements. Results vary by
+machine and load; they are deliberately not pass/fail tests.
+
+On a **dedicated test compositor**, set `GROUPS_NATIVE_TEST=1` when running
+`./validate`. This additionally maps the installed native bar with harmless
+probe widgets and an in-memory layout. It checks scoped host discovery,
+repeated-widget drag identity, exact insertion, shared plugin enablement,
+dismissal reuse, and stationary-pointer scrolling. Use a 1920×1080 test output.
+The default harnesses remain unmapped and safe to run in the desktop session.
