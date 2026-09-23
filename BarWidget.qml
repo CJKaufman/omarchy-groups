@@ -663,6 +663,9 @@ BarWidget {
     cancelChildDrag()
     if (!choice) return
     if (target) {
+      // Opening the destination spared the source while it was dragging.
+      // Finish that handoff before its dismissal surface can intercept input.
+      target.closeOtherGroups()
       mutate(function(config) {
         Layout.placeWidget(config, root.moduleName, targetId, choice, root.widgetOnly(choice.id), targetIndex)
       })

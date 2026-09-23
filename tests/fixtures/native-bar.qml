@@ -109,6 +109,7 @@ ShellRoot {
           if (target.cells.length !== 1) return
           check(source.cells[0] === root.retainedCell, "transfer rebuilt an unrelated widget")
           check(source.entries[0].label === "drawer-first" && target.entries[0].label === "drawer-second", "transfer moved wrong occurrence")
+          check(!source.expanded && !source.dismissActive, "transfer left the source dismissal surface intercepting destination input")
           target.open()
           root.stage++
         } else if (root.stage === 3) {
